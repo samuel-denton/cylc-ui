@@ -181,26 +181,25 @@ describe('Log view', () => {
     )
   })
 
-  it('inserts banner-like truncation markers into the log lines', async () => {
-    const results = new Results()
-    const callback = new LogsCallback(results, () => null)
+  it('records which end of the file has been truncated', async () => {
+    // start-of-file truncation
+    const startResults = new Results()
+    const startCallback = new LogsCallback(startResults, () => null)
+    startCallback.onAdded({ lines: ['line-1', 'line-2'] })
+    startCallback.onAdded({ truncated: 'start' })
+    expect(startResults.truncatedStart).toBe(true)
+    expect(startResults.truncatedEnd).toBe(false)
+    // markers are no longer injected into the log lines
+    expect(startResults.lines).toEqual(['line-1', 'line-2'])
 
-    // start-of-file truncation -> marker pinned to the top and frozen
-    callback.onAdded({ lines: ['line-1', 'line-2'] })
-    callback.onAdded({ truncated: 'start' })
-    expect(results.lines[0]).toMatchObject({ truncation: 'start' })
-    expect(results.lines[0].message).toMatch(/earlier lines omitted/)
-    expect(results.frozenLength).toBe(1)
-
-    // end-of-file truncation -> marker appended to the bottom
+    // end-of-file truncation
     const endResults = new Results()
     const endCallback = new LogsCallback(endResults, () => null)
     endCallback.onAdded({ lines: ['line-1', 'line-2'] })
     endCallback.onAdded({ truncated: 'end' })
-    const last = endResults.lines[endResults.lines.length - 1]
-    expect(last).toMatchObject({ truncation: 'end' })
-    expect(last.message).toMatch(/later lines omitted/)
-    expect(endResults.frozenLength).toBe(0)
+    expect(endResults.truncatedEnd).toBe(true)
+    expect(endResults.truncatedStart).toBe(false)
+    expect(endResults.lines).toEqual(['line-1', 'line-2'])
   })
 
   it('does not issue subscription for incomplete task ID', async () => {

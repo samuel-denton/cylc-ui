@@ -201,6 +201,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
       :logs="results.lines"
       :timestamps="timestamps"
       :word-wrap="wordWrap"
+      :truncated-start="results.truncatedStart"
+      :truncated-end="results.truncatedEnd"
       v-model:autoScroll="autoScroll"
     />
   </v-container>
@@ -254,20 +256,6 @@ import { eventBus } from '@/services/eventBus'
  */
 const LOG_MODE_HEAD = 'tail'
 const LOG_MODE_TAIL = 'tail-end'
-
-/**
- * Truncation markers inserted into the log stream where the file has been
- * truncated.
- *
- * The uiserver sends a structured `truncated` value ("start" or "end"); these
- * objects are inserted into the log lines in its place. Each counts as one log
- * "line" (for the pop/freeze logic) but is rendered as a banner-like block by
- * the log component (rather than as plain text).
- */
-const LOG_TRUNCATION_MARKERS = {
-  start: { truncation: 'start', message: 'earlier lines omitted (file truncated)' },
-  end: { truncation: 'end', message: 'later lines omitted (file truncated)' },
-}
 
 /**
  * Query used to retrieve data for the Log view.
@@ -337,11 +325,17 @@ export class Results {
     /** @type {?string} */
     this.error = null
     /**
-     * Number of leading lines that must not be discarded in "pop" mode
-     * (the frozen start-truncation marker).
-     * @type {number}
+     * Whether the *start* of the file has been truncated (some earlier lines
+     * are not shown). Drives the truncation warning above the log.
+     * @type {boolean}
      */
-    this.frozenLength = 0
+    this.truncatedStart = false
+    /**
+     * Whether the *end* of the file has been truncated (some later lines are
+     * not shown). Drives the truncation warning below the log.
+     * @type {boolean}
+     */
+    this.truncatedEnd = false
   }
 }
 
@@ -363,22 +357,19 @@ export class LogsCallback extends DeltasCallback {
     if (this.results.connected === false) {
       // We have reconnected; clear the current lines otherwise they will be duplicated
       this.results.lines = []
-      this.results.frozenLength = 0
+      this.results.truncatedStart = false
+      this.results.truncatedEnd = false
     }
     if (added.lines) {
       this.results.lines.push(...added.lines)
       this.trim()
     }
     if (added.truncated != null) {
-      // insert a banner-like marker where the file has been truncated
-      const marker = LOG_TRUNCATION_MARKERS[added.truncated]
+      // record which end of the file has been truncated (drives the warning)
       if (added.truncated === 'start') {
-        // the *start* of the file is omitted -> pin the marker to the top
-        this.results.lines.unshift(marker)
-        this.results.frozenLength = Math.max(this.results.frozenLength, 1)
+        this.results.truncatedStart = true
       } else {
-        // the *end* of the file is omitted
-        this.results.lines.push(marker)
+        this.results.truncatedEnd = true
       }
     }
     if (added.connected != null) {
@@ -393,20 +384,12 @@ export class LogsCallback extends DeltasCallback {
   }
 
   /**
-   * In "pop" mode, discard the oldest non-frozen lines to stay within the
-   * limit.  The frozen leading lines (e.g. start-truncation marker) are
-   * never discarded and do not count against the limit.
+   * In "pop" mode, discard the oldest lines to stay within the limit.
    */
   trim () {
     const maxLines = this.getMaxLines?.()
-    if (maxLines != null) {
-      const nonFrozen = this.results.lines.length - this.results.frozenLength
-      if (nonFrozen > maxLines) {
-        this.results.lines.splice(
-          this.results.frozenLength,
-          nonFrozen - maxLines
-        )
-      }
+    if (maxLines != null && this.results.lines.length > maxLines) {
+      this.results.lines.splice(0, this.results.lines.length - maxLines)
     }
   }
 }
@@ -630,7 +613,7 @@ export default {
       const maxLines = normalizeLogMaxLines(this.maxLines)
       if (popMode && this.results.lines.length > maxLines) {
         this.results.lines.splice(
-          this.results.frozenLength,
+          0,
           this.results.lines.length - maxLines
         )
       }
