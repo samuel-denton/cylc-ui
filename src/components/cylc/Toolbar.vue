@@ -439,7 +439,11 @@ export default {
       )
     },
     statusMessage () {
-      return upperFirst(this.currentWorkflow?.node?.statusMsg || '')
+      if (this.currentWorkflow?.node?.statusMsg.includes('stopped')) {
+        return upperFirst(this.currentWorkflow?.node?.statusMsg + ' - Task status will not update')
+      } else {
+        return upperFirst(this.currentWorkflow?.node?.statusMsg || '')
+      }
     },
     versionPopup () {
       let ret = ''
